@@ -48,6 +48,8 @@ string LinuxParser::Kernel() {
     std::istringstream linestream(line);
     linestream >> os >> _ >> kernel;
   }
+  stream.close();
+
   return kernel;
 }
 
@@ -74,27 +76,48 @@ vector<int> LinuxParser::Pids() {
 // TODO: Read and return the system memory utilization
 float LinuxParser::MemoryUtilization() { 
   string line;
-  string key;
-  float value;
+  string memTotalLabel = "MemTotal:";
+  string memFreeLabel = "MemFree:";
+  string memBuffersLabel = "Buffers:";
 
-  float memTotal;
-  float memFree;
-  float result = 0L;
-  
-  ifstream stream(kProcDirectory + kMeminfoFilename);
+  string value;
+  std::ifstream stream(kProcDirectory + kMeminfoFilename);
   if (stream.is_open()) {
-    while(getline(stream, line)) {
-        std::istringstream lineStream(line);
-        lineStream >> key >> value;
-          if (key == "MemTotal")
-              memTotal = value;
-          else if (key == "MemFree")
-              memFree = value;
+    float totalMemory = 0.;
+    float freeMemory = 0.;
+    float buffers = 0.;
+    while (std::getline(stream, line))
+    {
+        if (totalMemory != 0 && freeMemory != 0)
+            break;
+        if (line.compare(0, memTotalLabel.size(), memTotalLabel) == 0)
+        {
+            std::istringstream buf(line);
+            std::istream_iterator<string> beg(buf), end;
+            vector<string> values(beg, end);
+            totalMemory = stof(values[1]);
+        }
+        if (line.compare(0, memFreeLabel.size(), memFreeLabel) == 0)
+        {
+            std::istringstream buf(line);
+            std::istream_iterator<string> beg(buf), end;
+            vector<string> values(beg, end);
+            freeMemory = stof(values[1]);
+        }
+        if (line.compare(0, memBuffersLabel.size(), memBuffersLabel) == 0)
+        {
+            std::istringstream buf(line);
+            std::istream_iterator<string> beg(buf), end;
+            vector<string> values(beg, end);
+            buffers = stof(values[1]);
+        }
     }
-    result = (memTotal - memFree) / memTotal;
+    if (totalMemory - buffers != 0) {
+      return float(1.0 - (freeMemory / (totalMemory - buffers)));
+    }
+    stream.close();
   }
-  
-  return result;
+  return 0.;
 }
 
 // TODO: Read and return the system uptime
@@ -107,6 +130,7 @@ long LinuxParser::UpTime() {
     getline(stream, line);
     std::istringstream lineStream(line);
     lineStream >> result;
+    stream.close();
   }
 
   return result;
@@ -130,7 +154,7 @@ long LinuxParser::ActiveJiffies(int pid) {
   string value;
   long result = 0L;
 
-  ifstream stream(kProcDirectory + to_string(pid) + kStatusFilename);
+  ifstream stream(kProcDirectory + to_string(pid) + kStatFilename);
   if (stream.is_open()) {
     getline(stream, line);
     int count = 0;
@@ -143,6 +167,7 @@ long LinuxParser::ActiveJiffies(int pid) {
       }
       count++;
     }
+    stream.close();
   }
   return result;
 }
@@ -181,10 +206,41 @@ vector<string> LinuxParser::CpuUtilization() {
   if (stream.is_open()) {
     getline(stream, line);
     std::istringstream lineStream(line);
-    lineStream >> value;
     while(lineStream >> value) {
-      result.push_back(value);
+      if (value != "cpu") {
+        result.push_back(value);
+      }
     }
+    stream.close();
+  }
+
+  return result;
+}
+
+float LinuxParser::CpuUtilization(int pid) {  
+  string line;
+  string value;
+  float result = 0.;
+
+  ifstream stream(kProcDirectory + to_string(pid) + kStatFilename);
+  if (stream.is_open()) {
+    getline(stream, line);
+    std::istringstream lineStream(line);
+    std::istream_iterator<string> beg(lineStream), end;
+    vector<string> values(beg, end);
+
+    float utime = stof(values[13]);
+    float stime = stof(values[14]);
+    float cutime = stof(values[15]);
+    float cstime = stof(values[16]);
+    float starttime = stof(values[21]);
+    float totalTime = utime + stime + cutime + cstime;
+    float hertz = sysconf(_SC_CLK_TCK);
+    float seconds = (starttime / hertz);
+
+    result = 100.0 * ((totalTime / hertz) / seconds);
+
+    stream.close();
   }
 
   return result;
@@ -204,6 +260,7 @@ int LinuxParser::TotalProcesses() {
         return result;
       }
     }
+    stream.close();
   }
 
   return result;  
@@ -223,6 +280,7 @@ int LinuxParser::RunningProcesses() {
         return result;
       }
     }
+    stream.close();
   }
 
   return result;   
@@ -235,6 +293,7 @@ string LinuxParser::Command(int pid) {
   ifstream stream(kProcDirectory + to_string(pid) + kCmdlineFilename);
   if (stream.is_open()) {
     getline(stream, result);
+    stream.close();
     return result;
   }
 
@@ -246,17 +305,18 @@ string LinuxParser::Command(int pid) {
 string LinuxParser::Ram(int pid) { 
   string line;
   string key;
-  string value;
+  int value;
 
   ifstream stream(kProcDirectory + to_string(pid) + kStatusFilename);
   if (stream.is_open()) {
     while(getline(stream, line)) {
       std::istringstream lineStream(line);
       lineStream >> key >> value;
-      if (key == "Uid:") {
-        return value;
+      if (key == "VmSize:") {
+        return to_string(value / 1000);
       }
     }
+    stream.close();
   }
   
   return string();
@@ -278,6 +338,7 @@ string LinuxParser::Uid(int pid) {
         return value;
       }
     }
+    stream.close();
   }
   
   return string();  
@@ -302,6 +363,7 @@ string LinuxParser::User(int pid) {
         return key;
       }
     }
+    stream.close();
   }
   
   return string();
@@ -318,13 +380,14 @@ long LinuxParser::UpTime(int pid) {
   if (stream.is_open()) {
     getline(stream, line);
     std::istringstream lineStream(line);
-    int i = 0;
+    int count = 0;
     while(lineStream >> data) {
-      if (i == 21) {
-        return stol(data) / sysconf(_SC_CLK_TCK);
+      if (count == 21) {
+        return LinuxParser::UpTime() - (stol(data) / sysconf(_SC_CLK_TCK));
       }
-      i++;
+      count++;
     }
+    stream.close();
   }
 
   return result; 

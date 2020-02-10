@@ -9,10 +9,16 @@ class Processor {
 
   // TODO: Declare any necessary private members
   private:
-    int _pid{0};
-    float _cpuUtilization{0.};
-    long _activeJiffies{0L};
-    long _totalJiffies{0L};
+    float User();
+    float Nice();
+    float System();
+    float Idle();
+    float IOwait();
+    float IRQ();
+    float SoftIRQ();
+    float Steal();
+    float Guest();
+    float GuestNice();
 };
 
 #endif
